@@ -17,7 +17,18 @@ class TTSClient(ABC):
     def play_text(self, text: str) -> str:
         tmp_mp3 = self.text_to_mp3(text)
         tmp_wav = tmp_mp3.replace(".mp3", ".wav")
-        subprocess.call(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", tmp_mp3, tmp_wav])
+        subprocess.call(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-y",
+                "-i",
+                tmp_mp3,
+                tmp_wav,
+            ]
+        )
 
         wf = wave.open(tmp_wav, "rb")
         audio = pyaudio.PyAudio()
@@ -38,18 +49,39 @@ class TTSClient(ABC):
 
     def get_duration(self, audio_fn: str) -> float:
         popen = subprocess.Popen(
-            ["ffprobe", "-hide_banner", "-loglevel", "error", "-show_entries", "format=duration", "-i", audio_fn],
+            [
+                "ffprobe",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-i",
+                audio_fn,
+            ],
             stdout=subprocess.PIPE,
         )
         popen.wait()
         output = popen.stdout.read().decode("utf-8")
-        duration = float(output.split("=")[1].split("\r")[0])
+        output_lines = output.split("\n")
+        duration = None
+        for item in output_lines:
+            if item.startswith("duration="):
+                duration_str = item.split("=")[1]
+                duration = float(duration_str)
+                break
+
+        if duration is None:
+            raise ValueError("No duration value found in output.")
+
         return duration
 
 
 class GoogleTTS(TTSClient):
     def text_to_mp3(self, text: str, output_fn: Optional[str] = None) -> str:
         tmp_fn = output_fn or os.path.join(tempfile.mkdtemp(), "tts.mp3")
+
+        os.makedirs(os.path.dirname(tmp_fn), exist_ok=True)
         tts = gTTS(text, lang="en")
         tts.save(tmp_fn)
         return tmp_fn

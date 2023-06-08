@@ -74,11 +74,13 @@ tws.on_session = run_chat
 # solv notes 
 
 - need to `brew install portaudio`
+- need to 'brew install ffmpeg'
 - install ngrok (brew)
 - run ngrok and configure twilio with ngrok url
 - pip install gevent python-dotenv twilio flask flask-sock
 - lots of typos (need llm_ in front of some things)
-
+- in twilio_io -> the static_dir that's passed in doesn't point to the same directory that audio in/out is writing to
+    - hence added '../'
 
 # instructions for setting up twilio webhook + ngrok 
 

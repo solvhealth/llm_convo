@@ -7,7 +7,8 @@ import time
 
 from gevent.pywsgi import WSGIServer
 from twilio.rest import Client
-from flask import Flask, send_from_directory
+from twilio.twiml.voice_response import VoiceResponse, Start
+from flask import Flask, Response, send_from_directory, render_template
 from flask_sock import Sock
 import simple_websocket
 import audioop
@@ -15,14 +16,33 @@ import audioop
 from llm_convo.audio_input import WhisperTwilioStream
 
 
+# TODO: remote host here?
 XML_MEDIA_STREAM = """
 <Response>
     <Start>
         <Stream name="Audio Stream" url="wss://{host}/audiostream" />
     </Start>
-    <Pause length="60"/>
 </Response>
 """
+
+MATCHING_TWILIO = """
+<?xml version="1.0" encoding="UTF-8"?>
+    <Response>
+        <Say>Hello, Trevor, it's good to hear from you.</Say>
+    </Response>
+"""
+
+TEST_AUDIO = """
+<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say>Hello!</Say>
+    <Start>
+        <Stream name="Audio Stream" url="wss://{host}/audiostream" />
+    </Start>
+</Response>
+"""
+
+# <Pause length="60"/>
 
 
 class TwilioServer:
@@ -31,37 +51,44 @@ class TwilioServer:
         self.sock = Sock(self.app)
         self.remote_host = remote_host
         self.port = port
+        # BUG: the path here was off initially
         self.static_dir = static_dir
         self.server_thread = threading.Thread(target=self._start)
         self.on_session = None
 
         account_sid = os.environ["TWILIO_ACCOUNT_SID"]
-        # auth_token = os.environ["TWILIO_AUTH_TOKEN"]
         self.from_phone = os.environ["TWILIO_PHONE_NUMBER"]
-        # self.client = Client(account_sid, auth_token)
         api_key = os.environ["TWILIO_API_KEY"]  # might just be SID
         api_secret = os.environ["TWILIO_API_SECRET"]  # dami gave
         account_sid = os.environ["TWILIO_ACCOUNT_SID"]  # test from twilio
-        print("api_key: ", api_key)
-        print("api_secret: ", api_secret)
-        print("account_sid: ", account_sid)
         self.client = Client(api_key, api_secret, account_sid)
 
         @self.app.route("/audio/<key>")
         def audio(key):
-            return send_from_directory(self.static_dir, str(int(key)) + ".mp3")
+            audio_path = self.static_dir + "/" + str(int(key)) + ".mp3"
+            # had to update to read correctly
+            return send_from_directory("../" + self.static_dir, str(int(key)) + ".mp3")
 
         @self.app.route("/test")
         def test():
             return "hello world"
 
-        @self.app.route("/incoming-voice", methods=["POST"])
+        @self.app.route("/audio/incoming-voice", methods=["POST"])
         def incoming_voice():
             logging.info("Incoming call")
-            return XML_MEDIA_STREAM.format(host=self.remote_host)
+            twiml_response = VoiceResponse()
+
+            start = Start()
+            start.stream(
+                name="Example Audio Stream", url=f"wss://{self.remote_host}/audiostream"
+            )
+            twiml_response.append(start)
+
+            return Response(str(twiml_response), mimetype="application/xml")
 
         @self.sock.route("/audiostream", websocket=True)
         def on_media_stream(ws):
+            logging.info("Media stream connected")
             session = TwilioCallSession(
                 ws,
                 self.client,
@@ -74,8 +101,13 @@ class TwilioServer:
             session.start_session()
 
     def start_call(self, to_phone: str):
+        # NOTE: still having issues passing in plain twiml...
+        # this should work, and would be easier to dev with.
+        # however, I've just defaulted to using the hosted twiml bin through the twilio console for now
+        # twiml_string = f'<Response><Say>Hello!</Say><Start><Stream name="Audio Stream" url="wss://{self.remote_host}/audiostream" /></Start></Response>'
         self.client.calls.create(
-            twiml=XML_MEDIA_STREAM.format(host=self.remote_host),
+            # twiml=twiml_string,
+            url="https://handler.twilio.com/twiml/EHd5240a6bfa49988135723404c8bef70c",
             to=to_phone,
             from_=self.from_phone,
         )
@@ -130,9 +162,9 @@ class TwilioCallSession:
         return key, path
 
     def play(self, audio_key: str, duration: float):
-        self._call.update(
-            twiml=f'<Response><Play>https://{self.remote_host}/audio/{audio_key}</Play><Pause length="60"/></Response>'
-        )
+        play_audio = f'<Response><Play>https://{self.remote_host}/audio/{audio_key}</Play><Pause length="60"/></Response>'
+
+        self._call.update(twiml=play_audio)
         time.sleep(duration + 0.2)
 
     def start_session(self):

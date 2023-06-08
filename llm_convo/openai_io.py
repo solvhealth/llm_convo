@@ -14,7 +14,9 @@ class OpenAIChatCompletion:
             {"role": "system", "content": self.system_prompt},
         ]
         for i, text in enumerate(reversed(transcript)):
-            messages.insert(1, {"role": "user" if i % 2 == 0 else "assistant", "content": text})
+            messages.insert(
+                1, {"role": "user" if i % 2 == 0 else "assistant", "content": text}
+            )
         output = openai.ChatCompletion.create(
             model="gpt-3.5-turbo",
             messages=messages,
